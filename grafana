@@ -1,0 +1,42 @@
+---
+- name: Install Grafana on Amazon Linux with manual GPG key import and dependency handling
+  hosts: amazon_linux
+  become: yes
+  tasks:
+
+    - name: Install prerequisite packages and dependencies
+      yum:
+        name: "{{ item }}"
+        state: present
+        disable_gpg_check: yes
+      loop:
+        - wget
+        - initscripts
+        - fontconfig
+        - freetype
+        - urw-fonts
+
+    - name: Download Grafana RPM
+      get_url:
+        url: https://dl.grafana.com/oss/release/grafana-9.2.5-1.x86_64.rpm
+        dest: /tmp/grafana.rpm
+
+    - name: Import Grafana GPG key manually
+      command: rpm --import https://packages.grafana.com/gpg.key
+
+    - name: Install Grafana from RPM without GPG verification
+      command: rpm -Uvh --nodigest --nofiledigest /tmp/grafana.rpm
+      register: grafana_install
+      ignore_errors: yes
+
+    - name: Start and enable Grafana service
+      systemd:
+        name: grafana-server
+        enabled: yes
+        state: started
+      when: grafana_install is succeeded
+
+    - name: Clean up the downloaded RPM file
+      file:
+        path: /tmp/grafana.rpm
+        state: absent
