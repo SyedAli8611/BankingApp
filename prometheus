@@ -1,0 +1,110 @@
+---
+- name: Install and Configure Prometheus
+  hosts: all
+  become: yes
+
+  vars:
+    prometheus_version: "2.46.0"
+    prometheus_user: "prometheus"
+    prometheus_group: "prometheus"
+    prometheus_install_dir: "/etc/prometheus"
+    prometheus_data_dir: "/var/lib/prometheus"
+    prometheus_bin_dir: "/usr/local/bin"
+    prometheus_port: 9090
+
+  tasks:
+    - name: Create prometheus user and group
+      ansible.builtin.group:
+        name: "{{ prometheus_group }}"
+        state: present
+
+    - ansible.builtin.user:
+        name: "{{ prometheus_user }}"
+        group: "{{ prometheus_group }}"
+        create_home: no
+        shell: /usr/sbin/nologin
+        system: yes
+
+    - name: Create Prometheus install directory
+      ansible.builtin.file:
+        path: "{{ prometheus_install_dir }}"
+        state: directory
+        owner: "{{ prometheus_user }}"
+        group: "{{ prometheus_group }}"
+        mode: '0755'
+
+    - name: Download Prometheus binary
+      ansible.builtin.get_url:
+        url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+        dest: "/tmp/prometheus-{{ prometheus_version }}.tar.gz"
+        mode: '0644'
+
+    - name: Extract Prometheus binary
+      ansible.builtin.unarchive:
+        src: "/tmp/prometheus-{{ prometheus_version }}.tar.gz"
+        dest: "/tmp"
+        remote_src: yes
+
+    - name: Move Prometheus binaries to bin directory
+      ansible.builtin.command:
+        cmd: "mv /tmp/prometheus-{{ prometheus_version }}.linux-amd64/prometheus {{ prometheus_bin_dir }}/prometheus"
+      notify: Restart Prometheus
+
+    - name: Move Prometheus configuration file
+      ansible.builtin.command:
+        cmd: "mv /tmp/prometheus-{{ prometheus_version }}.linux-amd64/prometheus.yml {{ prometheus_install_dir }}/prometheus.yml"
+      notify: Restart Prometheus
+
+    - name: Set permissions for Prometheus files and directories
+      ansible.builtin.file:
+        path: "{{ prometheus_install_dir }}/prometheus.yml"
+        owner: "{{ prometheus_user }}"
+        group: "{{ prometheus_group }}"
+        mode: '0644'
+
+    - name: Set up data directory
+      ansible.builtin.file:
+        path: "{{ prometheus_data_dir }}"
+        state: directory
+        owner: "{{ prometheus_user }}"
+        group: "{{ prometheus_group }}"
+        mode: '0755'
+
+    - name: Configure Prometheus as a systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/prometheus.service
+        content: |
+          [Unit]
+          Description=Prometheus Monitoring
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          User={{ prometheus_user }}
+          Group={{ prometheus_group }}
+          Type=simple
+          ExecStart={{ prometheus_bin_dir }}/prometheus \
+            --config.file={{ prometheus_install_dir }}/prometheus.yml \
+            --storage.tsdb.path={{ prometheus_data_dir }} \
+            --web.listen-address=:{{ prometheus_port }}
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: '0644'
+      notify: Restart Prometheus
+
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: yes
+
+    - name: Start and enable Prometheus service
+      ansible.builtin.systemd:
+        name: prometheus
+        enabled: yes
+        state: started
+
+  handlers:
+    - name: Restart Prometheus
+      ansible.builtin.systemd:
+        name: prometheus
+        state: restarted
