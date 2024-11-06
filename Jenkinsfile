@@ -1,15 +1,15 @@
 pipeline {
-     agent { label 'slave1' }
+    agent any
 
-	environment {	
-		DOCKERHUB_CREDENTIALS=credentials('dockerloginid')
-	}
-		
+    environment {    
+        DOCKERHUB_CREDENTIALS = credentials('dockerid')
+    }
+        
     stages {
-        stage('SCM_Checkout') {
+        stage('SCM Checkout') {
             steps {
                 echo 'Perform SCM Checkout'
-                git 'https://github.com/SA-AWS-DevOps-July24/BankingApp.git'
+                git 'https://github.com/SyedAli8611/BankingApp.git'
             }
         }
         stage('Application Build') {
@@ -21,30 +21,42 @@ pipeline {
         stage('Docker Build') {
             steps {
                 echo 'Perform Docker Build'
-				sh "docker build -t loksaieta/bankapp-eta-app:${BUILD_NUMBER} ."
-				sh "docker tag loksaieta/bankapp-eta-app:${BUILD_NUMBER} loksaieta/bankapp-eta-app:latest"
-				sh 'docker image list'
+                sh "docker build -t iamfaizanali/bank-automatic:${BUILD_NUMBER} ."
+                sh "docker tag iamfaizanali/bank-automatic:${BUILD_NUMBER} iamfaizanali/bank-automatic:latest"
+                sh 'docker image list'
             }
         }
         stage('Login to Dockerhub') {
             steps {
-                echo 'Login to DockerHub'				
-				sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
-                
+                echo 'Login to DockerHub'                
+                sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
             }
         }
         stage('Publish the Image to Dockerhub') {
             steps {
                 echo 'Publish to DockerHub'
-				sh "docker push loksaieta/bankapp-eta-app:latest"                
+                sh "docker push iamfaizanali/bank-automatic:${BUILD_NUMBER}"                
+                sh "docker push iamfaizanali/bank-automatic:latest"
             }
         }
-        stage('Deploy to Kubernetes Cluster') {
+
+        stage('Execute Ansible Playbook') {
             steps {
-				script {
-				sshPublisher(publishers: [sshPublisherDesc(configName: 'SA_WD_Kubernetes_Master', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: 'kubectl apply -f kubernetesdeploy.yaml', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: '.', remoteDirectorySDF: false, removePrefix: '', sourceFiles: '*.yaml')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
-			}				          
+                script {
+                    ansiblePlaybook become: true, credentialsId: 'cred-ansible', disableHostKeyChecking: true, installation: 'ansible', inventory: '/etc/ansible/hosts', playbook: 'ansible-playbook.yml', vaultTmpPath: ''
+                }
             }
+        }
+    }
+    
+    post {
+        failure {
+            echo 'Send mail on failure'
+            mail bcc: 'alisyedfaizan390@gmail.com', body: 'Banking app build failed', cc: 'alisyedfaizan390@gmail.com', from: '', replyTo: '', subject: 'Banking app build failed', to: 'alisyedfaizan390@gmail.com'
+        }
+        success {
+            echo 'Send mail on success'
+            mail bcc: 'alisyedfaizan390@gmail.com', body: 'Banking app build successful ', cc: 'alisyedfaizan390@gmail.com', from: '', replyTo: '', subject: 'Banking app build successful with automation', to: 'alisyedfaizan390@gmail.com'
         }
     }
 }
