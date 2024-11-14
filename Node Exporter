@@ -1,3 +1,4 @@
+---
 - name: Install Node Exporter on Ubuntu
   hosts: localhost
   become: yes
